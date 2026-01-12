@@ -1,0 +1,56 @@
+services:
+  da3-backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        CUDA_TAG: 12.8.1-cudnn-runtime-ubuntu22.04
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
+    image: da3-backend:cu128
+    environment:
+      DA3_MODEL_DIR: ${DA3_MODEL_DIR:-depth-anything/DA3NESTED-GIANT-LARGE}
+      DA3_DEVICE: ${DA3_DEVICE:-cuda}
+      DA3_HOST: 0.0.0.0
+      DA3_PORT: 8000
+      PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True,max_split_size_mb:128}
+      HF_HOME: /cache/hf
+    volumes:
+      - hf-cache:/cache/hf
+      - ./workspace:/workspace
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  ros2-node:
+    image: ros:humble-ros-base-jammy
+    depends_on:
+      - da3-backend
+    network_mode: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ./api:/ws/src/api:ro
+    command: >
+      bash -lc "
+        apt-get update && apt-get install -y --no-install-recommends \
+          build-essential cmake pkg-config \
+          libopencv-dev \
+          ros-humble-cv-bridge ros-humble-image-transport \
+          libcurl4-openssl-dev \
+        && rm -rf /var/lib/apt/lists/* \
+        && source /opt/ros/humble/setup.bash \
+        && mkdir -p /ws/src \
+        && ln -sf /ws/src/api/da3_ros2_cpp /ws/src/da3_ros2_cpp \
+        && cd /ws \
+        && colcon build --packages-select da3_ros2_cpp \
+        && source /ws/install/setup.bash \
+        && ros2 run da3_ros2_cpp da3_depth_node --ros-args \
+             -p backend_url:=http://127.0.0.1:8000
+      "
+
+volumes:
+  hf-cache:
