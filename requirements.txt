@@ -14,6 +14,7 @@ uvicorn
 requests
 typer
 pillow
+python-multipart
 omegaconf
 evo
 e3nn

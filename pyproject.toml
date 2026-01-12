@@ -25,6 +25,7 @@ dependencies = [
     "open3d",
     "fastapi",
     "uvicorn",
+    "python-multipart",
     "requests",
     "typer",
     "pillow",

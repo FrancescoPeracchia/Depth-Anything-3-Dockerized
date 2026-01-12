@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>da3_ros2_cpp</name>
+  <version>0.0.1</version>
+  <description>ROS2 Humble C++ node: subscribe image, publish Depth Anything 3 depth image.</description>
+  <maintainer email="you@example.com">Francesco</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>image_transport</depend>
+  <depend>cv_bridge</depend>
+
+  <exec_depend>curl</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

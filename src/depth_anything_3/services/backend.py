@@ -18,6 +18,7 @@ Model backend service for Depth Anything 3.
 Provides HTTP API for model inference with persistent model loading.
 """
 
+import io
 import os
 import posixpath
 import time
@@ -29,9 +30,11 @@ from urllib.parse import quote
 import numpy as np
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
+from PIL import Image
+from starlette.concurrency import run_in_threadpool
 
 from ..api import DepthAnything3
 from ..utils.memory import (
@@ -1222,6 +1225,76 @@ def create_app(model_dir: str, device: str = "cuda", gallery_dir: Optional[str] 
             export_dir=request.export_dir,
             export_format=request.export_format,
         )
+
+    @_app.post("/infer_image")
+    async def infer_image(
+        image: Optional[UploadFile] = File(None),
+        file: Optional[UploadFile] = File(None),
+        process_res: int = Query(504, ge=32, le=4096),
+        process_res_method: str = Query("upper_bound_resize"),
+        align_to_input_ext_scale: bool = Query(True),
+    ):
+        """Run synchronous single-image inference.
+
+        Returns raw float32 depth bytes (row-major) in the response body.
+        Response headers:
+          - X-Width, X-Height
+          - X-Encoding: 32FC1
+          - X-Endian: little
+          - X-Is-Metric: 0/1
+        """
+
+        if _backend is None:
+            raise HTTPException(status_code=500, detail="Backend not initialized")
+
+        upload = image or file
+        if upload is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing upload field. Provide multipart field 'image' or 'file'.",
+            )
+
+        try:
+            contents = await upload.read()
+            pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid image upload: {str(e)}")
+
+        def _infer_bytes() -> tuple[bytes, int, int, int]:
+            model = _backend.get_model()
+            pred = model.inference(
+                image=[pil_img],
+                export_dir=None,
+                export_format="mini_npz",
+                process_res=process_res,
+                process_res_method=process_res_method,
+                export_feat_layers=[],
+                align_to_input_ext_scale=align_to_input_ext_scale,
+            )
+
+            depth = np.asarray(pred.depth[0], dtype=np.float32)
+            if not depth.flags["C_CONTIGUOUS"]:
+                depth = np.ascontiguousarray(depth)
+            height, width = int(depth.shape[0]), int(depth.shape[1])
+            is_metric = int(getattr(pred, "is_metric", 0) or 0)
+            return depth.tobytes(order="C"), width, height, is_metric
+
+        try:
+            depth_bytes, width, height, is_metric = await run_in_threadpool(_infer_bytes)
+        except RuntimeError as e:
+            cleanup_cuda_memory()
+            raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+
+        headers = {
+            "X-Width": str(width),
+            "X-Height": str(height),
+            "X-Encoding": "32FC1",
+            "X-Endian": "little",
+            "X-Is-Metric": str(is_metric),
+        }
+        return Response(content=depth_bytes, media_type="application/octet-stream", headers=headers)
 
     @_app.get("/task/{task_id}", response_model=TaskStatus)
     async def get_task_status(task_id: str):

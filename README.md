@@ -83,6 +83,37 @@ We introduce a new benchmark to rigorously evaluate geometry prediction models o
 
 ## 🚀 Quick Start
 
+## 🐳 Docker (CUDA 12.8 + ROS2 Humble)
+
+This repo includes a CUDA 12.8 Docker image for the DA3 backend and a ROS2 Humble C++ node under `api/`.
+
+### Build + run backend
+
+```bash
+docker build -f docker/Dockerfile \
+  --build-arg CUDA_TAG=12.8.1-cudnn-runtime-ubuntu22.04 \
+  --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu128 \
+  -t da3-backend:cu128 .
+
+docker run --rm -it --gpus all -p 8000:8000 \
+  -e DA3_MODEL_DIR=depth-anything/DA3NESTED-GIANT-LARGE \
+  da3-backend:cu128
+```
+
+Backend endpoints:
+- `GET /status`
+- `POST /infer_image` (upload one image; returns raw float32 depth bytes with `X-Width`/`X-Height` headers)
+
+### Run backend + ROS2 node (compose)
+
+```bash
+docker compose up --build
+```
+
+ROS2 pipeline docs (generate `depth.raw`, publish/view in ROS2, or run streaming node):
+- `docs/ROS2_PIPELINE.md`
+
+
 ### 📦 Installation
 
 ```bash
